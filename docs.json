@@ -264,6 +264,12 @@
                                             "en/workshop/intermediate/customer-service-bot",
                                             "en/workshop/intermediate/twitter-chatflow"
                                         ]
+                                    },
+                                    {
+                                        "group": "Advanced",
+                                        "pages": [
+                                            "en/workshop/advanced/thermodynamics-pro-plan-publication"
+                                        ]
                                     }
                                 ]
                             },
