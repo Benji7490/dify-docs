@@ -72,6 +72,17 @@ After verification, go to the subscription page, select **Professional**, toggle
 
 Dify enforces a **15 MB maximum file size** and **20-file batch upload limit**. For an 800-page textbook, split the PDF into four parts (~200 pages each). Name files sequentially (`thermodynamics_part1.pdf` through `thermodynamics_part4.pdf`) to maintain logical organization.
 
+**Recommended KB composition for a Bachelor-level thermodynamics course:**
+
+| Source category | Example files | Chunking note |
+|-----------------|---------------|---------------|
+| Core textbook (Thermo 1 + 2) | 800 pages split into 4 × ~200 pp | Parent-Child, paragraph delimiter |
+| Old exam papers (*Altklausuren Thermo 1 + 2*, Bachelor level) | One PDF per semester | Regex delimiter: `\n\n(?=Aufgabe \d+\|Problem \d+)` keeps each problem and its solution in the same parent chunk |
+| Lecture notes / professor handouts | Per chapter | Default Parent-Child |
+| Recent research articles | 1 file each | Default Parent-Child |
+
+`[screenshot: Knowledge Base creation dialog with Parent-Child Mode selected and Unstructured ETL highlighted]`
+
 ### Creating Your Knowledge Base
 
 Navigate to **Knowledge** in the main navigation bar and click **Create Knowledge**. Name it descriptively: `Thermodynamics_Textbook_2025`.
@@ -132,6 +143,19 @@ Click **"Save & Process"** and expect **60–120 minutes** for an 800-page colle
 
 For systematic publication generation, **Workflow applications** are recommended. Each execution starts fresh, ensuring consistent behavior. Configure Agent iteration limits to **5** to balance thoroughness with cost control.
 
+This tutorial itself lives under the Workshop → Advanced navigation group, registered in `docs.json` like this:
+
+```json
+{
+  "group": "Advanced",
+  "pages": [
+    "en/workshop/advanced/thermodynamics-pro-plan-publication"
+  ]
+}
+```
+
+`[screenshot: Dify Workflow Studio canvas showing the Start → Scout Loop → Analyst → Architect → Critic flow]`
+
 ### Connecting Your Knowledge Base
 
 In your workflow application, add a **Knowledge Retrieval node** upstream of your LLM node. Insert the output into your LLM node's context using: `{knowledge_retrieval.result}`.
@@ -140,14 +164,16 @@ For multiple knowledge bases, enable **Multi-path Retrieval Mode** to query text
 
 ### Managing Context Windows for Long-Form Generation
 
-| Model | Context | Suitability |
-|-------|---------|-------------|
-| GPT-3.5-turbo | 4,097 tokens | Insufficient for comprehensive papers |
-| GPT-4 | 8,192–32,768 tokens | Adequate for most papers |
-| Claude 3.5 Sonnet | 200,000 tokens | Exceptional for literature-heavy reviews |
-| Llama 3.1 | 131,072 tokens | Strong open-source option |
+Mirror the *plan-with-Opus / draft-with-Sonnet* split familiar from Claude Code: route **reasoning-heavy** nodes (Critic, Architect, Gap Analysis) to **Opus 4.7**, and **throughput-heavy** nodes (Scout, retrieval, intent parsing) to **Sonnet 4.6**.
 
-For a 5,000-word output (~6,700 tokens), allocate at least **8,000 max_tokens** in your LLM node, plus buffer for knowledge retrieval chunks (6 × 1,800 = 10,800 tokens), system prompt (~1,000), and user query (~500). Claude 3.5 Sonnet handles this comfortably.
+| Model | Context | Recommended role |
+|-------|---------|------------------|
+| GPT-4o | 128,000 tokens | Analyst (structured extraction, JSON, math) |
+| Claude Sonnet 4.6 | 200,000 tokens | Scout, long-form drafting, translation |
+| **Claude Opus 4.7** | 200,000 tokens | Critic, Architect, Gap Analysis, Refinement |
+| Llama 3.1 70B | 131,072 tokens | Strong open-source / self-host option |
+
+For a 5,000-word output (~6,700 tokens), allocate at least **8,000 max_tokens** in your LLM node, plus buffer for knowledge retrieval chunks (6 × 1,800 = 10,800 tokens), system prompt (~1,000), and user query (~500). Sonnet 4.6 handles this comfortably; route reasoning-heavy nodes to Opus 4.7.
 
 ---
 
@@ -170,6 +196,17 @@ Generate a 3,000–5,000 word academic article structured as:
 (6) Conclusions and Future Directions (500 words)
 Include in-text citations for all claims.
 ```
+
+**Mandatory LaTeX rendering instruction** (append to every system prompt):
+
+```
+Render all equations in LaTeX inside Markdown:
+- Inline math:   $\eta_{Carnot} = 1 - T_c/T_h$
+- Display math:  $$\Delta S \geq \frac{\delta Q}{T}$$
+Use SI units. Distinguish intensive (lowercase) from extensive (uppercase) properties.
+```
+
+Dify's frontend renders KaTeX in Markdown output, so equations display correctly in the final paper without additional post-processing.
 
 ### Incorporating Professor-Specific Guidelines
 
@@ -267,40 +304,68 @@ After loop exit, a Final Summary LLM node (Temperature: 0.2, max tokens: 8,000+)
 
 ---
 
-## Multi-Agent Systems for Specialized Publication Sections
+## Multi-Agent Coordination *(Optional Advanced Pattern)*
 
-### Supervisor-Coordinated Architecture
+> A single well-prompted workflow with the Deep Research loop is usually sufficient. This section describes a four-role specialization that helps when papers must withstand peer review.
 
-Create a **Supervisor LLM node** that decomposes your research topic into discrete tasks (e.g., theory review, IoT sensor integration, ML applications, case studies, economic viability). Store the task list in a writable variable, then use an Iteration node routing each task to a specialized Agent:
+### The Scout / Analyst / Critic / Architect Pattern
 
-| Agent | Model | Temperature | Focus |
-|-------|-------|-------------|-------|
-| Theory Agent | GPT-4 | 0.15 | Mathematical formulation, first-principles derivation |
-| Application Agent | Claude 3.5 Sonnet | 0.2 | Real-world implementation, quantitative case studies |
-| Data Analysis Agent | GPT-4 | 0.15 | Statistical analysis, uncertainty quantification |
-| Synthesis Agent | Claude 3.5 Sonnet | 0.2 | Cross-section connections, narrative coherence |
+This pattern mirrors how a human research group works: a **Scout** surveys the territory, an **Analyst** extracts the numbers, a **Critic** challenges the draft, and an **Architect** assembles the final manuscript.
 
-### Sequential Handoffs with Context Preservation
+| Agent | Model | Temp | Responsibility |
+|-------|-------|------|----------------|
+| **Scout** | Claude Sonnet 4.6 | 0.4 | Surveys KB + web, surfaces candidate sources, identifies knowledge gaps |
+| **Analyst** | GPT-4o | 0.2 | Extracts equations and numerical results, computes derived quantities, produces structured JSON |
+| **Critic** | Claude Opus 4.7 | 0.1 | Adversarial review: factual accuracy, citation completeness, logical consistency, scores draft 0–10 |
+| **Architect** | Claude Opus 4.7 | 0.2 | Composes the final draft, enforces section structure, handles cross-references and bibliography |
 
-Use **Variable Assigner nodes** after each agent to store outputs (e.g., `theory_section`). Each subsequent agent receives previous output as input context:
+### Sequential Handoffs
 
-```
-Building on the theoretical framework: {theory_section}, identify and analyze
-practical Industry 4.0 applications...
-```
-
-### Parallel Processing for Independent Sections
-
-When sections can develop independently, use parallel branches from your Start node:
+Use **Variable Assigner nodes** after each agent to store outputs (`scout_findings`, `analyst_results`, `critic_report`). Each downstream agent receives all previous outputs as input context:
 
 ```
-Branch 1: Introduction Agent    → introduction_output
-Branch 2: Literature Review Agent → literature_output
-Branch 3: Methodology Agent     → methodology_output
-Branch 4: Results Agent         → results_output
+You are the Critic. Review the Architect's draft below against the Scout's
+sources and the Analyst's extracted values. Flag any unsupported claims.
+
+Draft: {architect_draft}
+Sources: {scout_findings}
+Numerical results: {analyst_results}
 ```
 
-A **Template node** then aggregates using Jinja-2 syntax, followed by an Editor Agent ensuring consistency in terminology and citation format.
+### Sequential vs Parallel
+
+Use **sequential** when later agents depend on earlier outputs (Scout → Analyst → Architect → Critic). Use **parallel** branches only when sections are genuinely independent (e.g., introduction and methodology can draft in parallel before the Architect merges them via a Template node).
+
+---
+
+## Human-in-the-Loop Review *(Optional)*
+
+For high-stakes publications — graded coursework, thesis chapters, conference submissions — insert a manual review checkpoint between the Architect and the final formatting node.
+
+**When to use:**
+* Professor approval required before final formatting
+* Critic score is borderline (e.g., 7.5–8.5) and a human should arbitrate
+* Sources disagree and the Architect surfaced a conflict that needs scholarly judgment
+
+**Two implementation patterns in Dify:**
+
+1. **Pause-and-resume via Conversation Variable**
+   - The Architect writes the draft into a Conversation Variable
+   - An **Answer node** displays the draft and prompts the user to either confirm (`/approve`) or annotate with edits
+   - The next branch reads the variable and proceeds when an approval token is present
+
+2. **External webhook checkpoint** *(self-host only)*
+   - **HTTP Request node** posts the draft to a review tool (Notion, Linear, internal app)
+   - Workflow halts until a `PATCH /resume` call returns with the reviewer's edits
+   - Suitable for asynchronous overnight reviews
+
+Pattern overview:
+
+```
+Architect → Answer (paused, displays draft) → [human edits] → Continue → Formatting → End
+```
+
+`[screenshot: Workflow canvas with the paused human-review Answer node highlighted between Architect and Formatting]`
 
 ---
 
@@ -346,40 +411,91 @@ This 12-node production workflow generates publication-quality papers with itera
 
 ### Workflow Nodes
 
-**Node 2 — Topic Analysis LLM (GPT-4, temp: 0.3)**
+**Node 2 — Topic Analysis LLM (Sonnet 4.6, temp: 0.3)**
 Generates 5 research questions covering theoretical foundations, state-of-art, industrial applications, challenges, and future directions. Output: `research_questions`.
 
-**Node 3 — Deep Research Loop (8 iterations)**
+**Node 3 — Deep Research Loop (Scout agent, 8 iterations, `max_loops = 8`)**
 * 3a: Knowledge Retrieval (TopK: 10, Rerank enabled) → `textbook_content`
-* 3b: Research Agent (Exa Search, Exa Content, Wikipedia) → `web_research`
-* 3c: Synthesis LLM (Claude 3.5 Sonnet, temp: 0.25) → `iteration_summary`
+* 3b: Scout Agent — Sonnet 4.6 with Exa Search, Exa Content, Wikipedia → `web_research`
+* 3c: Synthesis LLM (Sonnet 4.6, temp: 0.25) → `iteration_summary`
 * 3d: Variable Assigner — appends to `accumulated_findings`, extracts citations
-* 3e: Gap Assessment LLM (GPT-4, structured JSON output) → updates `knowledge_gaps`
-* 3f: IF/ELSE — continue if gaps remain AND iterations < 8
+* 3e: Gap Assessment LLM (**Opus 4.7**, structured JSON output) → updates `knowledge_gaps`
+* 3f: IF/ELSE — continue if gaps remain AND `current_loop < max_loops`
 
-**Node 4 — Initial Draft Generation (GPT-4-turbo, temp: 0.2, max tokens: 8,000)**
-Uses `accumulated_findings`, `professor_guidelines`, and `sources`. Output: `draft_v1`.
+**Node 4 — Analyst (GPT-4o, temp: 0.2)**
+Extracts equations and numerical values from `accumulated_findings` into structured JSON (`{equation_id, latex, units, value, source}`). Output: `analyst_results`.
 
-**Node 5 — Quality Evaluation LLM (GPT-4, temp: 0.1)**
+**Node 5 — Architect: Initial Draft (Opus 4.7, temp: 0.2, max tokens: 8,000)**
+Uses `accumulated_findings`, `analyst_results`, `professor_guidelines`. Output: `draft_v1`.
+
+**Node 6 — Critic: Quality Evaluation (Opus 4.7, temp: 0.1)**
 Scores draft 0–10 against: technical accuracy, literature completeness, Industry 4.0 clarity, logical structure, critical analysis, citation quality, writing tone. Output: `quality_score`, `critique`.
 
-**Node 6 — Quality Gate IF/ELSE**
-* `quality_score >= 8.5` → formatting (Node 10)
-* Below threshold → refinement loop (Nodes 7–9, max 3 iterations)
+**Node 7 — Quality Gate IF/ELSE**
+* `quality_score >= 8.5` → optional HITL or directly to formatting (Node 11)
+* Below threshold → refinement loop (Nodes 8–10, `max_loops = 3`)
 
-**Nodes 7–9 — Refinement Loop**
+**Nodes 8–10 — Refinement Loop**
 * Parameter Extractor → `improvement_tasks`
-* Refinement Agent (Claude 3.5 Sonnet) — addresses specific weaknesses
-* Re-evaluation — if still below threshold and under 3 iterations, continues; otherwise proceeds
+* Architect rerun (Opus 4.7) — addresses specific weaknesses from `critique`
+* Re-evaluation by Critic — if still below threshold and under 3 iterations, continues; otherwise proceeds
 
-**Node 10 — Formatting Template (Jinja-2)**
+**Node 11 — Formatting Template (Jinja-2)**
 Applies markdown headers, equation numbering, citation format `[1]`, bibliography generation.
 
-**Node 11 — Citation Validator (Python Code node)**
-Checks all citations have source entries, no orphans, correct ordering, flags issues.
+**Node 12 — Citation Validator (Python Code node)**
+Checks all citations have source entries, no orphans, correct ordering, flags issues. **No LLM cost.**
 
-**Node 12 — End Node**
+**Node 13 — End Node**
 Outputs: `final_paper`, `quality_metrics`, `research_log`, `total_sources`.
+
+### Abbreviated Workflow YAML
+
+A trimmed view of the node graph and model assignments (illustrative — Dify's exported DSL is more verbose):
+
+```yaml
+nodes:
+  - id: start
+    type: start
+    outputs: [research_topic, target_word_count, quality_threshold]
+  - id: topic_analysis
+    type: llm
+    model: claude-sonnet-4-6
+    temperature: 0.3
+  - id: scout_loop
+    type: loop
+    max_loops: 8
+    body:
+      - retrieval: { top_k: 10, rerank: true }
+      - agent: { model: claude-sonnet-4-6, tools: [exa_search, exa_content] }
+      - gap_check: { model: claude-opus-4-7, structured_output: true }
+  - id: analyst
+    type: llm
+    model: gpt-4o
+    temperature: 0.2
+  - id: architect
+    type: llm
+    model: claude-opus-4-7
+    temperature: 0.2
+    max_tokens: 8000
+  - id: critic
+    type: llm
+    model: claude-opus-4-7
+    temperature: 0.1
+  - id: refinement_loop
+    type: loop
+    max_loops: 3
+    condition: "quality_score < quality_threshold"
+  - id: format
+    type: template
+  - id: validate_citations
+    type: code
+    language: python
+edges:
+  - start → topic_analysis → scout_loop → analyst → architect → critic
+  - critic → [pass | refinement_loop → architect]
+  - critic → format → validate_citations → end
+```
 
 ### Estimated Execution Time and Costs
 
@@ -391,7 +507,7 @@ Outputs: `final_paper`, `quality_metrics`, `research_log`, `total_sources`.
 | Refinement (avg. 2 iterations) | 4–6 min |
 | **Total** | **12–18 min** |
 
-Token costs for a 4,500-word paper: ~160,000 tokens ≈ **$1.60 with GPT-4**. With the Pro Plan's 5,000 message credits, you can generate approximately **30–40 papers per month** before needing your own API keys.
+Token costs for a 4,500-word paper using the mixed-model strategy (Sonnet 4.6 for Scout/drafting, Opus 4.7 for Critic/Architect, GPT-4o for Analyst): roughly **$2–4 per paper** depending on refinement iterations. With the Pro Plan's 5,000 message credits, you can generate roughly **25–35 papers per month** before attaching your own API keys.
 
 ---
 
@@ -431,51 +547,48 @@ When accumulating findings across loop iterations exceeds Cloud variable limits:
 
 ### LaTeX Equations Displaying Incorrectly
 
-* Enable Markdown rendering in retrieval display settings
+* Enable Markdown rendering in retrieval display settings — Dify renders KaTeX
+* Verify the system prompt instructs the model to emit `$...$` (inline) and `$$...$$` (display) math
 * Use LLM Enrichment Node to describe equations in plain language stored as metadata
 * Include links to original PDF page numbers in citations
 * Explicitly state "See source document Equation X for mathematical formulation" when precision matters
 
+### Workflow Runtime Ceiling (~1 Hour)
+
+Dify Cloud caps a single workflow execution at roughly **one hour**. Deep Research loops with high `max_loops` plus a refinement loop can hit this ceiling.
+
+**Workarounds:**
+
+* **Cap `max_loops`** at 6–8 for Deep Research and 3 for Refinement (`max_loops` is enforced inside each Loop node and is your primary safety valve)
+* **Flow-splitting**: extract the Deep Research loop into a *sub-workflow* exposed via an internal HTTP endpoint. The parent workflow calls it asynchronously and persists results in Conversation Variables, then resumes with drafting in a second execution
+* **Batched / scheduled runs**: trigger long jobs overnight via webhook so a timeout simply restarts at the next pending step
+* **Self-host workaround**: increase Celery worker timeout in `.env`:
+  ```bash
+  CELERY_BACKEND_TIMEOUT=7200      # 2 hours
+  WORKFLOW_MAX_EXECUTION_TIME=7200
+  ```
+
 ---
 
-## Comparing Dify with Alternatives
+## Comparing Platforms for Academic Publication Generation
 
-### Dify vs Google NotebookLM
+| Criterion | **Dify + NotebookLM** | LangChain | LlamaIndex | Flowise |
+|-----------|-----------------------|-----------|------------|---------|
+| **No-Code vs Code** | No-Code (visual canvas) + zero-config Q&A | Code (Python framework) | Code (Python framework) | No-Code (visual canvas) |
+| **Multi-Agent Capability** | Native — Agent node, Loop node, sequential & parallel orchestration | Library-level (agent abstractions, requires custom code) | Limited — focused on retrieval, not orchestration | Basic — no iteration/Loop node |
+| **Knowledge-Base Integration** | Built-in (Parent-Child chunking, Knowledge Pipeline, Rerank) | DIY via vector store wrappers | Best-in-class for advanced RAG | Built-in but basic |
+| **On-Prem vs Cloud** | Both (Cloud Pro + Docker self-host) | Both (any runtime) | Both (any runtime) | Both |
+| **Debugging** | ✅ Execution logs, version control | ⚠️ Code-level (LangSmith helps) | ⚠️ Library-level | ❌ Limited |
+| **Recommended for academia** | ✅ End-to-end publication pipeline | ⚠️ Dev-heavy | ⚠️ Retrieval-only | ⚠️ Limited debug + no loops |
 
-| | Dify | NotebookLM |
-|-|------|------------|
-| Setup | Moderate (2–3 hrs) | Zero configuration |
-| Customization | Full (workflows, agents, APIs) | None (document Q&A only) |
-| Output | Publication-ready papers | Conversational responses + podcasts |
-| File limits | 500 docs / 5 GB | Smaller collection limits |
-| API access | Yes | No |
+### Why "Dify + NotebookLM" as a Combined Recommendation
 
-**Choose NotebookLM for:** rapid document analysis, audio summaries, zero technical setup.
-**Choose Dify for:** customizable publication workflows, API integration, multi-step research processes.
+The two complement each other for academic work:
 
-### Dify vs LangChain
+* **NotebookLM** for **rapid early-stage literature scouting** — drop in 10–20 candidate papers, ask broad orientation questions, generate an audio summary for commute review. Zero setup.
+* **Dify Pro** for **systematic publication generation** — once you know the relevant material, build the Scout→Analyst→Critic→Architect workflow that consistently produces 4,500-word papers with citations and quality gates.
 
-Dify enables "dozens of applications in the time it takes to learn how LangChain works." The platform's 15 core components vs. LangChain's dozens simplify mental models, while battle-tested reliability from a dedicated team outperforms community-contributed components.
-
-**Choose LangChain for:** teams of experienced Python developers, highly custom orchestration needs, code-based configuration management.
-**Choose Dify for:** rapid development, mixed technical teams, production reliability, collaborative workflow design.
-
-### Dify vs LlamaIndex
-
-LlamaIndex specializes in RAG architecture and data loading excellence, while Dify provides end-to-end platform capabilities (workflows, agents, deployment, UI). For building complete applications, Dify's integrated scope reduces assembly complexity. Expert recommendation: combine them via API when advanced retrieval optimization is needed alongside Dify's workflow orchestration.
-
-### Dify vs Flowise (IRIS by Argon & Co, 2025 Benchmark)
-
-| Criterion | Dify | Flowise |
-|-----------|------|---------|
-| Debugging | ✅ Complete logs, version control | ❌ No intuitive debugging |
-| Logic control | ✅ IF/ELSE, loops, error handling | ⚠️ Basic IF/ELSE only |
-| Scalability | ⚠️ Small-to-medium workloads | ✅ High-traffic enterprise |
-| GitHub growth (Sep 2024–Jan 2025) | +45% (40k → 58k stars) | Stagnant ~30k |
-| Iteration/Loop nodes | ✅ Yes | ❌ No |
-
-**Choose Flowise for:** enterprise-scale traffic, maximum LangChain component access.
-**Choose Dify for:** debugging quality, iteration functionality, consistent multi-app patterns.
+NotebookLM accelerates the *what should I read?* phase; Dify automates the *how do I turn it into a paper?* phase.
 
 ---
 
@@ -547,16 +660,16 @@ Configure PostgreSQL for metadata, Redis for caching, and your choice of vector 
 
 ## Conclusion
 
-Dify.ai Professional Plan, accessed freely through student verification, transforms academic publication generation from a weeks-long manual process into a systematic, reproducible workflow completing in hours.
+Dify Professional Plan, accessed freely through student verification, transforms academic publication generation from a weeks-long manual process into a systematic, reproducible workflow completing in hours.
 
 Key success factors:
+
 * **Invest 2–3 hours** upfront optimizing chunking strategy and system prompts
 * **Validate on a small sample** (50–100 pages, 1 test paper) before processing your full collection
-* **Use Claude 3.5 Sonnet** for synthesis phases requiring large context windows
-* **Enable quality gates** (score threshold 8.5) to automatically trigger refinement before output
-* **Self-host** if you hit Cloud variable limits or need to process the full 800-page collection at scale
-
-With **115,000+ GitHub stars**, **45% community growth in four months**, and **130,000+ applications** built on the platform, Dify provides the production-grade reliability your thermodynamics publications deserve.
+* **Use Sonnet 4.6 for Scout and drafting; Opus 4.7 for Critic and Architect** — the same plan-with-Opus / draft-with-Sonnet pattern Claude Code users already know
+* **Enable quality gates** (Critic score threshold ≥ 8.5) to automatically trigger refinement before output
+* **Cap `max_loops`** (Deep Research ≤ 8, Refinement ≤ 3) so workflows finish well under the ~1 h runtime ceiling
+* **Self-host via Docker** if you need full data sovereignty or to process the full 800-page collection at scale
 
 {/*
 Contributing Section
