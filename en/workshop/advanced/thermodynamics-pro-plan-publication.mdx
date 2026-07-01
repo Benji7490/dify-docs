@@ -164,16 +164,16 @@ For multiple knowledge bases, enable **Multi-path Retrieval Mode** to query text
 
 ### Managing Context Windows for Long-Form Generation
 
-Mirror the *plan-with-Opus / draft-with-Sonnet* split familiar from Claude Code: route **reasoning-heavy** nodes (Critic, Architect, Gap Analysis) to **Opus 4.7**, and **throughput-heavy** nodes (Scout, retrieval, intent parsing) to **Sonnet 4.6**.
+Mirror the *plan-with-Opus / draft-with-Sonnet* split familiar from Claude Code: route **reasoning-heavy** nodes (Critic, Architect, Gap Analysis) to **Opus 4.8**, and **throughput-heavy** nodes (Scout, retrieval, intent parsing) to **Sonnet 4.6**.
 
 | Model | Context | Recommended role |
 |-------|---------|------------------|
 | GPT-4o | 128,000 tokens | Analyst (structured extraction, JSON, math) |
 | Claude Sonnet 4.6 | 200,000 tokens | Scout, long-form drafting, translation |
-| **Claude Opus 4.7** | 200,000 tokens | Critic, Architect, Gap Analysis, Refinement |
+| **Claude Opus 4.8** | 200,000 tokens | Critic, Architect, Gap Analysis, Refinement |
 | Llama 3.1 70B | 131,072 tokens | Strong open-source / self-host option |
 
-For a 5,000-word output (~6,700 tokens), allocate at least **8,000 max_tokens** in your LLM node, plus buffer for knowledge retrieval chunks (6 × 1,800 = 10,800 tokens), system prompt (~1,000), and user query (~500). Sonnet 4.6 handles this comfortably; route reasoning-heavy nodes to Opus 4.7.
+For a 5,000-word output (~6,700 tokens), allocate at least **8,000 max_tokens** in your LLM node, plus buffer for knowledge retrieval chunks (6 × 1,800 = 10,800 tokens), system prompt (~1,000), and user query (~500). Sonnet 4.6 handles this comfortably; route reasoning-heavy nodes to Opus 4.8.
 
 ---
 
@@ -316,8 +316,8 @@ This pattern mirrors how a human research group works: a **Scout** surveys the t
 |-------|-------|------|----------------|
 | **Scout** | Claude Sonnet 4.6 | 0.4 | Surveys KB + web, surfaces candidate sources, identifies knowledge gaps |
 | **Analyst** | GPT-4o | 0.2 | Extracts equations and numerical results, computes derived quantities, produces structured JSON |
-| **Critic** | Claude Opus 4.7 | 0.1 | Adversarial review: factual accuracy, citation completeness, logical consistency, scores draft 0–10 |
-| **Architect** | Claude Opus 4.7 | 0.2 | Composes the final draft, enforces section structure, handles cross-references and bibliography |
+| **Critic** | Claude Opus 4.8 | 0.1 | Adversarial review: factual accuracy, citation completeness, logical consistency, scores draft 0–10 |
+| **Architect** | Claude Opus 4.8 | 0.2 | Composes the final draft, enforces section structure, handles cross-references and bibliography |
 
 ### Sequential Handoffs
 
@@ -419,16 +419,16 @@ Generates 5 research questions covering theoretical foundations, state-of-art, i
 * 3b: Scout Agent — Sonnet 4.6 with Exa Search, Exa Content, Wikipedia → `web_research`
 * 3c: Synthesis LLM (Sonnet 4.6, temp: 0.25) → `iteration_summary`
 * 3d: Variable Assigner — appends to `accumulated_findings`, extracts citations
-* 3e: Gap Assessment LLM (**Opus 4.7**, structured JSON output) → updates `knowledge_gaps`
+* 3e: Gap Assessment LLM (**Opus 4.8**, structured JSON output) → updates `knowledge_gaps`
 * 3f: IF/ELSE — continue if gaps remain AND `current_loop < max_loops`
 
 **Node 4 — Analyst (GPT-4o, temp: 0.2)**
 Extracts equations and numerical values from `accumulated_findings` into structured JSON (`{equation_id, latex, units, value, source}`). Output: `analyst_results`.
 
-**Node 5 — Architect: Initial Draft (Opus 4.7, temp: 0.2, max tokens: 8,000)**
+**Node 5 — Architect: Initial Draft (Opus 4.8, temp: 0.2, max tokens: 8,000)**
 Uses `accumulated_findings`, `analyst_results`, `professor_guidelines`. Output: `draft_v1`.
 
-**Node 6 — Critic: Quality Evaluation (Opus 4.7, temp: 0.1)**
+**Node 6 — Critic: Quality Evaluation (Opus 4.8, temp: 0.1)**
 Scores draft 0–10 against: technical accuracy, literature completeness, Industry 4.0 clarity, logical structure, critical analysis, citation quality, writing tone. Output: `quality_score`, `critique`.
 
 **Node 7 — Quality Gate IF/ELSE**
@@ -437,7 +437,7 @@ Scores draft 0–10 against: technical accuracy, literature completeness, Indust
 
 **Nodes 8–10 — Refinement Loop**
 * Parameter Extractor → `improvement_tasks`
-* Architect rerun (Opus 4.7) — addresses specific weaknesses from `critique`
+* Architect rerun (Opus 4.8) — addresses specific weaknesses from `critique`
 * Re-evaluation by Critic — if still below threshold and under 3 iterations, continues; otherwise proceeds
 
 **Node 11 — Formatting Template (Jinja-2)**
@@ -468,19 +468,19 @@ nodes:
     body:
       - retrieval: { top_k: 10, rerank: true }
       - agent: { model: claude-sonnet-4-6, tools: [exa_search, exa_content] }
-      - gap_check: { model: claude-opus-4-7, structured_output: true }
+      - gap_check: { model: claude-opus-4-8, structured_output: true }
   - id: analyst
     type: llm
     model: gpt-4o
     temperature: 0.2
   - id: architect
     type: llm
-    model: claude-opus-4-7
+    model: claude-opus-4-8
     temperature: 0.2
     max_tokens: 8000
   - id: critic
     type: llm
-    model: claude-opus-4-7
+    model: claude-opus-4-8
     temperature: 0.1
   - id: refinement_loop
     type: loop
@@ -507,7 +507,7 @@ edges:
 | Refinement (avg. 2 iterations) | 4–6 min |
 | **Total** | **12–18 min** |
 
-Token costs for a 4,500-word paper using the mixed-model strategy (Sonnet 4.6 for Scout/drafting, Opus 4.7 for Critic/Architect, GPT-4o for Analyst): roughly **$2–4 per paper** depending on refinement iterations. With the Pro Plan's 5,000 message credits, you can generate roughly **25–35 papers per month** before attaching your own API keys.
+Token costs for a 4,500-word paper using the mixed-model strategy (Sonnet 4.6 for Scout/drafting, Opus 4.8 for Critic/Architect, GPT-4o for Analyst): roughly **$2–4 per paper** depending on refinement iterations. With the Pro Plan's 5,000 message credits, you can generate roughly **25–35 papers per month** before attaching your own API keys.
 
 ---
 
@@ -666,7 +666,7 @@ Key success factors:
 
 * **Invest 2–3 hours** upfront optimizing chunking strategy and system prompts
 * **Validate on a small sample** (50–100 pages, 1 test paper) before processing your full collection
-* **Use Sonnet 4.6 for Scout and drafting; Opus 4.7 for Critic and Architect** — the same plan-with-Opus / draft-with-Sonnet pattern Claude Code users already know
+* **Use Sonnet 4.6 for Scout and drafting; Opus 4.8 for Critic and Architect** — the same plan-with-Opus / draft-with-Sonnet pattern Claude Code users already know
 * **Enable quality gates** (Critic score threshold ≥ 8.5) to automatically trigger refinement before output
 * **Cap `max_loops`** (Deep Research ≤ 8, Refinement ≤ 3) so workflows finish well under the ~1 h runtime ceiling
 * **Self-host via Docker** if you need full data sovereignty or to process the full 800-page collection at scale
